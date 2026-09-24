@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cosmic Rush — Affiliate</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; background: #0b1020; color: #e8eefc; }
+    a { color: #7ab8ff; }
+    button { padding: .6rem 1rem; margin: .25rem .25rem .25rem 0; cursor: pointer; }
+    input { width: 100%; padding: .5rem; margin: .35rem 0 1rem; }
+    .card { border: 1px solid #2a3558; border-radius: 12px; padding: 1rem; margin: 1rem 0; background: #121a33; }
+    .muted { color: #9aa6c4; font-size: .9rem; }
+    code { word-break: break-all; }
+  </style>
+</head>
+<body>
+  <h1>Cosmic Rush Affiliate</h1>
+  <p class="muted">Linea · 9-level · 25% max pool · claims on-chain. This is not a deposit product. Payouts only after volume is settled.</p>
+
+  <div class="card">
+    <p><a href="./index.html">Play the web game</a></p>
+    <p class="muted">Android APK: use the MEGA link you already issued to testers.</p>
+  </div>
+
+  <div class="card">
+    <div>Detected ref: <code id="ref">none</code></div>
+    <div>Wallet: <code id="acct">not connected</code></div>
+    <button id="connect">Connect MetaMask (Linea)</button>
+  </div>
+
+  <div class="card">
+    <h3>Create your code</h3>
+    <input id="code" placeholder="e.g. ALICE" />
+    <button id="setCode">setCode</button>
+    <p class="muted">Your share link will be shown after connect.</p>
+    <p>Share: <code id="share">—</code></p>
+  </div>
+
+  <div class="card">
+    <h3>Join under a ref</h3>
+    <button id="bind">Register with detected ref</button>
+    <p class="muted">Uses ?ref=CODE or ?ref=0xWallet</p>
+  </div>
+
+  <div class="card">
+    <h3>Dashboard</h3>
+    <div>claimable: <code id="claimable">—</code></div>
+    <button id="claim">claim()</button>
+  </div>
+
+<script>
+const LINEA = 59144n;
+const CONTRACT = "0xccb6355e1c6a2e68ec3d640b4a45ec169119a058";
+const ABI = [
+  "function setCode(string code)",
+  "function register(address referrer)",
+  "function registerWithCode(string code)",
+  "function claim()",
+  "function claimable(address) view returns (uint256)"
+];
+
+const params = new URLSearchParams(location.search);
+const ref = params.get("ref") || "";
+if (ref) localStorage.setItem("cr_ref", ref);
+const saved = localStorage.getItem("cr_ref") || "";
+document.getElementById("ref").textContent = saved || "none";
+
+let provider, signer, contract, account;
+
+async function ensureLinea() {
+  const chainId = await provider.send("eth_chainId", []);
+  if (BigInt(chainId) !== LINEA) {
+    try {
+      await provider.send("wallet_switchEthereumChain", [{ chainId: "0xe708" }]);
+    } catch (e) {
+      if (e.code === 4902) {
+        await provider.send("wallet_addEthereumChain", [{
+          chainId: "0xe708",
+          chainName: "Linea",
+          nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+          rpcUrls: ["https://rpc.linea.build"],
+          blockExplorerUrls: ["https://lineascan.build"]
+        }]);
+      } else throw e;
+    }
+  }
+}
+
+document.getElementById("connect").onclick = async () => {
+  provider = new ethers.BrowserProvider(window.ethereum);
+  await provider.send("eth_requestAccounts", []);
+  await ensureLinea();
+  signer = await provider.getSigner();
+  account = await signer.getAddress();
+  contract = new ethers.Contract(CONTRACT, ABI, signer);
+  document.getElementById("acct").textContent = account;
+  const url = location.origin + location.pathname + "?ref=" + account;
+  document.getElementById("share").textContent = url;
+  const c = await contract.claimable(account);
+  document.getElementById("claimable").textContent = ethers.formatEther(c) + " ETH";
+};
+
+document.getElementById("setCode").onclick = async () => {
+  const code = document.getElementById("code").value.trim();
+  const tx = await contract.setCode(code);
+  await tx.wait();
+  document.getElementById("share").textContent =
+    location.origin + location.pathname + "?ref=" + encodeURIComponent(code);
+  alert("Code set. Share that link.");
+};
+
+document.getElementById("bind").onclick = async () => {
+  const r = localStorage.getItem("cr_ref") || "";
+  if (!r) return alert("No ref in URL");
+  const tx = r.startsWith("0x") && r.length === 42
+    ? await contract.register(r)
+    : await contract.registerWithCode(r);
+  await tx.wait();
+  alert("Registered");
+};
+
+document.getElementById("claim").onclick = async () => {
+  const tx = await contract.claim();
+  await tx.wait();
+  const c = await contract.claimable(account);
+  document.getElementById("claimable").textContent = ethers.formatEther(c) + " ETH";
+};
+</script>
+</body>
+</html>
